@@ -98,7 +98,7 @@ export default class HomeScreen extends Component {
         <Header title="insta saver"/>
         <View style={styles.container}>
           <View style={styles.itemsContainer}>
-          <SliderView data={this.state.media_urls} />
+          <SliderView data={this.state.media_urls} navigation={this.props.navigation}/>
             <Button style={{marginBottom:10}} mode="contained" theme={DarkTheme}>
               save
             </Button>
