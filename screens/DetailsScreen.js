@@ -10,7 +10,8 @@ import {
   PermissionsAndroid
 } from 'react-native';
 
-import { TextInput, DarkTheme, Button } from 'react-native-paper';
+import {RNFFmpeg } from 'react-native-ffmpeg';
+import { TextInput, DarkTheme, Button, Checkbox  } from 'react-native-paper';
 import * as Progress from 'react-native-progress';
 import SliderView from "../components/SliderView.js"
 import Header from "../components/Header.js"
@@ -21,15 +22,16 @@ const DOWNLOAD_PATH = RNFS.ExternalStorageDirectoryPath + "/Insta-saver/download
 
 export default class DetailsScreen extends Component {
 
-  state = {isLoading:true}
+  state = {isLoading:true, checked:false, ableToCombine:false}
   process_link = async () => {
     //slides request
     //var request = await fetch("https://www.instagram.com/p/B7rm9dwnOPr/")
 
+    //slides with multiple videos
+    // https://www.instagram.com/p/B7rUaMuH6fR/
     // single media request
     //var request = await fetch("https://www.instagram.com/p/B7Ic00NH0A4/")
     var link = this.props.navigation.getParam('url', 'NO-ID')
-    console.warn(this.state.url)
     var request = await fetch(link)
     text = await request.text()
 
@@ -38,6 +40,7 @@ export default class DetailsScreen extends Component {
 
     matches.forEach((element) => {
         if (element.includes("graphql")) {
+            var videos_count = 0
             formatted = element + "}}"
             var json = JSON.parse(formatted)
 
@@ -57,9 +60,18 @@ export default class DetailsScreen extends Component {
                     this.setState({ src: node.node.display_url})
                   }
                 })
-
+                src_arr.forEach((media) => {
+                  if(media.type === "video"){
+                    videos_count++
+                  }
+                })
+                if (videos_count >= 2) {
+                  this.setState({ ableToCombine: true, })
+                }
+                else {
+                  this.setState({ ableToCombine: false, })
+                }
                 this.setState({ media_urls: src_arr, isLoading:false })
-                console.warn("done ?")
             }
 
             // if the instagram post is a single video or image
@@ -80,37 +92,67 @@ export default class DetailsScreen extends Component {
                 })
               }
             }
-
         }
       })
   }
 
 
-
-
   save_media = async () => {
     this.setState({downloading:true})
-
+    file_names = []
+    tasks = []
+    finished_downloads = 0
     var exists = await RNFS.exists(DOWNLOAD_PATH)
     if (!exists) {
       await RNFS.mkdir(DOWNLOAD_PATH)
     }
     var media_list = this.state.media_urls
     this.setState({downloadCount:media_list.length})
-    media_list.forEach(async(item) => {
+    await media_list.forEach(async(item) => {
       if (item.type == "video") {
         let random = Math.random().toString(36).substring(7);
-        await RNFS.downloadFile({fromUrl:item.src, toFile:DOWNLOAD_PATH+"/"+random+".mp4"})
+        file_names.push(random+".mp4")
+        var task = RNFS.downloadFile({fromUrl:item.src, toFile:DOWNLOAD_PATH+"/"+random+".mp4"})
+        tasks.push(task)
+
       }
       else if (item.type == "image") {
         let random = Math.random().toString(36).substring(7);
-        await RNFS.downloadFile({fromUrl:item.src,toFile:DOWNLOAD_PATH+"/"+random+".jpg"})
-
+        var task = RNFS.downloadFile({fromUrl:item.src,toFile:DOWNLOAD_PATH+"/"+random+".jpg"})
+        tasks.push(task)
       }
     })
+      //Looping through download tasks and continuously checking if all the tasks are done
+      tasks.forEach((task) => {
+        task.promise.then(async() => {
+          finished_downloads++
+          if (media_list.length === finished_downloads) {
+              this.setState({downloading:false, lastSavedMedia:media_list})
+              if(!this.state.checked){
+                  this.cancel()
+              }
+              
+              if (this.state.checked && this.state.ableToCombine &! this.state.downloading) {
+                concat_str = ""
+                await file_names.forEach((name) => {
+                  str_dummy = "file " + DOWNLOAD_PATH + "/" +name + "\n"
+                  concat_str += str_dummy
+                })
+                console.warn(concat_str)
+                let list_name = Math.random().toString(36).substring(7);
+                await RNFS.writeFile(DOWNLOAD_PATH + "/"+list_name +".txt" , concat_str, "utf8")
+                let final_output_name = Math.random().toString(36).substring(7);
+                await RNFFmpeg.execute("-f concat -safe 0 -i "+DOWNLOAD_PATH +"/"+list_name+".txt"+" -c copy "+ DOWNLOAD_PATH+"/"+final_output_name+".mp4")
+                RNFS.unlink(DOWNLOAD_PATH + "/" +list_name+".txt")
+                file_names.forEach((name) => {
+                  RNFS.unlink(DOWNLOAD_PATH + "/" +name)
+                });
+              }
+          }
+        })
+      })
 
-    this.setState({downloading:false, lastSavedMedia:media_list})
-    this.cancel()
+
 
   }
 
@@ -146,6 +188,7 @@ export default class DetailsScreen extends Component {
       </React.Fragment>
     )
     }
+    const { checked } = this.state;
       return (
       <React.Fragment>
         <Header title="insta saver"/>
@@ -158,6 +201,21 @@ export default class DetailsScreen extends Component {
             <Button mode="contained" theme={DarkTheme} onPress={this.cancel}>
               Cancel
             </Button>
+
+            {this.state.ableToCombine ? (<View style={{ flexDirection: 'row' }}><Checkbox
+                          status={checked ? 'checked' : 'unchecked'}
+                          theme={DarkTheme}
+                          onPress={() => { this.setState({ checked: !checked }); }}
+                          />
+                        <Text style={{marginTop: 6, color:"white", fontSize:17}}> Combine videos</Text></View>):(
+                          <View style={{ flexDirection: 'row' }}><Checkbox
+                            status={checked ? 'checked' : 'unchecked'}
+                            theme={DarkTheme}
+                            onPress={() => { this.setState({ checked: !checked }); }}
+                            disabled={true}
+                            />
+                          <Text style={{marginTop: 6, color:"gray", fontSize:17}}> Combine videos</Text></View>
+                        )}
           </View>
 
 
